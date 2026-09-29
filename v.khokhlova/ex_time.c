@@ -8,19 +8,15 @@ int main()
 {
     time_t now;
     struct tm *sp;
-
-    setenv("TZ", "America/Los_Angeles", 1);
-    tzset();
-
+    setenv("TZ", "America/Los_Angeles", 1); \\задает переменную окружения, меняет на Лос Анжелес
+    tzset(); \\ Для пересчета новой зоны 
     (void) time( &now );
-
     printf("%s", ctime( &now ) );
-
     sp = localtime(&now);
     printf("%d/%d/%02d %d:%02d %s\n",
         sp->tm_mon + 1, sp->tm_mday,
-        sp->tm_year + 1900, sp->tm_hour,
+        sp->tm_year, sp->tm_hour,
         sp->tm_min, tzname[sp->tm_isdst]);
 
-    return 0;
+    exit(0);
 }
