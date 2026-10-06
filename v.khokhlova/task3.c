@@ -1,39 +1,44 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <stdlib.h>
 
-int main(int argc, char *argv[])
+int main(void)
 {
-    FILE *f;
+    FILE *file;  // Указатель для работы с файлом
 
-    if (argc != 2) {
-        fprintf(stderr, "Using: %s file \n", argv[0]);
-        exit(1);
+    // Вывод идентификаторов пользователя до изменения UID
+    printf("Before setuid:\n");
+    printf("Real UID: %d\n", getuid());       // Реальный UID пользователя
+    printf("Effective UID: %d\n", geteuid()); // Эффективный UID (используется для проверки прав)
+
+    // Попытка открыть файл data.txt только для чтения
+    file = fopen("data.txt", "r");
+
+    if (file == NULL)
+        perror("fopen");          // Если открыть не удалось — выводим ошибку
+    else {
+        printf("File opened\n");  // Файл успешно открыт
+        fclose(file);             // Закрываем файл
     }
 
-    printf("Real UID = %d, Efficent UID = %d\n",
-           getuid(), geteuid());
-
-    f = fopen(argv[1], "r+");
-    if (f == NULL)
-        perror("fopen");
-    else {
-        printf("File open succsesfuly\n");
-        fclose(f);
+    // Понижаем привилегии: эффективный UID становится равным реальному UID
+    if (setuid(getuid()) == -1) {
+        perror("setuid");         // Если setuid завершился ошибкой — выводим её
+        return 1;
     }
 
-    if (setuid(geteuid()) == -1)
-        perror("setuid");
+    // Вывод идентификаторов пользователя после изменения UID
+    printf("\nAfter setuid:\n");
+    printf("Real UID: %d\n", getuid());
+    printf("Effective UID: %d\n", geteuid());
 
-    printf("Real UID = %d, Efficent UID = %d\n",
-           getuid(), geteuid());
+    // Повторная попытка открыть файл data.txt уже с новыми привилегиями
+    file = fopen("data.txt", "r");
 
-    f = fopen(argv[1], "r+");
-    if (f == NULL)
-        perror("fopen");
+    if (file == NULL)
+        perror("fopen");          // Если открыть не удалось — выводим ошибку
     else {
-        printf("File open succsesfuly\n");
-        fclose(f);
+        printf("File opened\n");  // Файл успешно открыт
+        fclose(file);             // Закрываем файл
     }
 
     return 0;
