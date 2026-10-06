@@ -8,10 +8,18 @@ int main()
 {
     time_t now;
     struct tm *sp;
-    setenv("TZ", "America/Los_Angeles", 1); //задает переменную окружения, меняет на Лос Анжелес
-    tzset(); // Для пересчета новой зоны 
+
+    // === ПЕРВАЯ СТРОКА: PDT (America/Los_Angeles с авто-DST) ===
+    setenv("TZ", "America/Los_Angeles", 1);
+    tzset();
+
     (void) time( &now );
-    printf("%s", ctime( &now ) );
+    printf("%s", ctime( &now ) );   // здесь будет PDT (если сейчас лето)
+
+    // === ВТОРАЯ СТРОКА: PST (всегда зимнее) ===
+    setenv("TZ", "PST8PST", 1);
+    tzset();
+
     sp = localtime(&now);
     printf("%d/%d/%02d %d:%02d %s\n",
         sp->tm_mon + 1, sp->tm_mday,
