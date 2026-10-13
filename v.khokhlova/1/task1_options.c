@@ -34,18 +34,19 @@ static void show_pids(void)
            (int)getpid(), (int)getppid(), (int)getpgrp());
 }
 
-// Опция -u: показать лимит на максимальный размер файла
+// Опция -u: показать максимально допустимый размер файла
 static void show_ulimit(void)
 {
-    struct rlimit rl;                   // rlim_cur это мягкий лимит, rlim_max это жёсткий
+    struct rlimit rl;
     if (getrlimit(RLIMIT_FSIZE, &rl) < 0) {
         perror("getrlimit");
         return;
     }
-    printf("ulimit (max file size) = %llu\n", (unsigned long long)rl.rlim_cur);
+    printf("Max file size (soft) = %llu bytes\n", (unsigned long long)rl.rlim_cur);
+    printf("Max file size (hard) = %llu bytes\n", (unsigned long long)rl.rlim_max);
 }
 
-// Опция -U: изменить лимит на размер файла
+// Опция -U: изменить максимально допустимый размер файла
 static void set_ulimit(const char *v)
 {
     struct rlimit rl;
@@ -53,11 +54,11 @@ static void set_ulimit(const char *v)
         perror("getrlimit");
         return;
     }
-    rl.rlim_cur = (rlim_t)atol(v);      // atol: строка в длинное целое, "0" даёт 0, "abc" тоже 0
+    rl.rlim_cur = (rlim_t)atol(v);      // atol: строка в длинное целое
     if (setrlimit(RLIMIT_FSIZE, &rl) < 0) {
-        perror("setrlimit");            // обычный пользователь может только уменьшать мягкий лимит
+        perror("setrlimit");
     } else {
-        printf("ulimit (max file size) = %s\n", v);
+        printf("Max file size (soft) = %s bytes\n", v);
     }
 }
 
@@ -69,7 +70,8 @@ static void show_core(void)
         perror("getrlimit");
         return;
     }
-    printf("Core size = %llu\n", (unsigned long long)rl.rlim_cur);
+    printf("Core size (soft) = %llu bytes\n", (unsigned long long)rl.rlim_cur);
+    printf("Core size (hard) = %llu bytes\n", (unsigned long long)rl.rlim_max);
 }
 
 // Опция -C: изменить размер core-файла
@@ -84,7 +86,7 @@ static void set_core(const char *v)
     if (setrlimit(RLIMIT_CORE, &rl) < 0) {
         perror("setrlimit");
     } else {
-        printf("Core size = %s\n", v);
+        printf("Core size (soft) = %s bytes\n", v);
     }
 }
 
@@ -118,9 +120,9 @@ static void set_env(const char *nv)
     char name[256];
     if (len >= sizeof name) len = sizeof name - 1;
     for (size_t i = 0; i < len; ++i) name[i] = nv[i];
-    name[len] = '\0';                           // завершаем строку имени нулевым символом
+    name[len] = '\0';
 
-    if (setenv(name, eq + 1, 1) < 0) {          // eq+1 это значение, 1 значит перезаписать если есть
+    if (setenv(name, eq + 1, 1) < 0) {          // eq+1 это значение, 1 значит перезаписать
         perror("setenv");
     } else {
         printf("Environment: %s = %s\n", name, eq + 1);
@@ -135,14 +137,13 @@ int main(int argc, char **argv)
     int opt;                            // очередная опция от getopt
     int *opts = NULL;                   // массив кодов опций
     char **args = NULL;                 // массив аргументов опций
-    size_t count = 0, cap = 0;          // сколько уже есть и сколько места выделено
+    size_t count = 0, cap = 0;          // сколько уже есть и сколько места
 
     opterr = 0;                         // отключаем автоматические сообщения getopt
 
-    // Первая фаза: собрать все опции в массив в порядке слева направо
+    // Первая фаза: собрать все опции в массив слева направо
     while ((opt = getopt(argc, argv, OPTSTRING)) != -1) {
-
-        if (count == cap) {             // если массив заполнен, расширяем в два раза
+        if (count == cap) {
             size_t nc = (cap == 0) ? 8 : cap * 2;
             int  *t1 = realloc(opts, nc * sizeof *opts);
             char **t2 = realloc(args, nc * sizeof *args);
@@ -153,14 +154,13 @@ int main(int argc, char **argv)
             }
             opts = t1; args = t2; cap = nc;
         }
-
-        opts[count] = opt;                          // сохраняем код опции
-        args[count] = (optarg != NULL) ? optarg : NULL;   // и её аргумент, если есть
+        opts[count] = opt;
+        args[count] = (optarg != NULL) ? optarg : NULL;
         ++count;
     }
 
-    // Вторая фаза: обработать собранные опции справа налево
-    for (size_t i = count; i-- > 0; ) {             // i-- > 0 значит сначала проверить потом уменьшить
+    // Вторая фаза: обработать справа налево
+    for (size_t i = count; i-- > 0; ) {
         switch (opts[i]) {
             case 'i': show_ids();        break;
             case 's': become_leader();   break;
@@ -173,7 +173,7 @@ int main(int argc, char **argv)
             case 'v': show_env();        break;
             case 'V': set_env(args[i]);   break;
 
-            case '?':                                       // неизвестная опция
+            case '?':
                 if (optopt == 0)
                     fprintf(stderr, "Unknown option: %s\n", argv[optind - 1]);
                 else
