@@ -1,63 +1,72 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <stdio.h>                      // printf, fprintf, fputs, perror, putchar
+#include <stdlib.h>                     // malloc, free, exit, EXIT_SUCCESS, EXIT_FAILURE
+#include <string.h>                     // strlen, memcpy
+#include <unistd.h>                     // read
 
-struct node {                  // узел списка
-    char *line;                // указатель на строку в динамической памяти
-    struct node *next;         // указатель на следующий узел
+// Узел связного списка: указатель на строку и указатель на следующий узел
+struct node {
+    char *line;
+    struct node *next;
 };
+
+// Читаем строку посимвольно. Управляющие символы (стрелки) отбрасываем.
+// Возвращаем длину строки без завершающего нуля, -1 при EOF, 0 при пустой строке.
+static long read_line_filtered(char *buf, size_t cap)
+{
+    size_t used = 0;
+    while (used + 1 < cap) {
+        char c;
+        ssize_t n = read(STDIN_FILENO, &c, 1);
+        if (n < 0) return -1;
+        if (n == 0) {
+            if (used == 0) return -1;   // совсем ничего и EOF
+            break;
+        }
+        if (c == '\n') break;           // конец строки
+
+        unsigned char uc = (unsigned char)c;
+        if (uc < 0x20 && c != '\t') {
+            continue;                   // это управляющий символ: стрелки, Ctrl и т.п.
+        }
+        buf[used++] = c;
+    }
+    buf[used] = '\0';
+    return (long)used;
+}
 
 int main(void)
 {
-    struct node *head = NULL, *tail = NULL, *p;   // head/tail — края списка, p — рабочий указатель
+    struct node *head = NULL, *tail = NULL, *p;   // head и tail это края списка
     char buffer[4096];                            // буфер для чтения строки
 
-    while (fgets(buffer, sizeof buffer, stdin) != NULL) {  // читаем строку (вместе с \n)
-        size_t len = strlen(buffer);              // длина без завершающего '\0'
-        if (len > 0 && buffer[0] == '.')          // точка в начале — конец ввода
-            break;
+    for (;;) {
+        long len = read_line_filtered(buffer, sizeof buffer);
+        if (len < 0) break;                       // EOF
+        if (len == 0) continue;                   // пустая строка — пропускаем
+        if (buffer[0] == '.') break;              // точка в начале — конец ввода
 
-        p = malloc(sizeof *p);                    // память под узел списка
-        if (p == NULL) {
-            perror("malloc");
-            while (head != NULL) {                // если не вышло — освобождаем всё, что успели
-                p = head;
-                head = head->next;
-                free(p->line);
-                free(p);
-            }
-            return EXIT_FAILURE;
-        }
+        p = malloc(sizeof *p);                    // память под узел
+        if (p == NULL) { perror("malloc"); return EXIT_FAILURE; }
 
-        p->line = malloc(len + 1);                // +1 — под завершающий '\0'
-        if (p->line == NULL) {
-            perror("malloc");
-            free(p);                              // узел уже выделен — освобождаем его
-            while (head != NULL) {                // и весь список заодно
-                p = head;
-                head = head->next;
-                free(p->line);
-                free(p);
-            }
-            return EXIT_FAILURE;
-        }
-        memcpy(p->line, buffer, len + 1);         // копируем строку вместе с '\0'
+        p->line = malloc((size_t)len + 1);        // +1 под завершающий \0
+        if (p->line == NULL) { perror("malloc"); free(p); return EXIT_FAILURE; }
+        memcpy(p->line, buffer, (size_t)len + 1);
         p->next = NULL;
 
-        if (tail == NULL)                         // список пуст — новый узел становится head
-            head = p;
-        else                                      // иначе цепляем к хвосту
-            tail->next = p;
-        tail = p;                                 // новый узел — теперь хвост
+        if (tail == NULL) head = p;               // список пуст — голова это новый узел
+        else tail->next = p;                      // иначе цепляем за хвостом
+        tail = p;                                 // новый узел становится хвостом
     }
 
-    for (p = head; p != NULL; p = p->next) {      // вывод списка в порядке добавления
+    // Добавим перевод строки для нашего вывода, чтобы всё было на отдельных строках
+    putchar('\n');
+
+    for (p = head; p != NULL; p = p->next) {      // проходим по списку
         fputs(p->line, stdout);
-        if (p->line[0] != '\0' && p->line[strlen(p->line) - 1] != '\n')
-            putchar('\n');                        // если строку не завершал '\n' — добавим
+        putchar('\n');
     }
 
-    while (head != NULL) {                        // освобождаем память: сначала строку, потом узел
+    while (head != NULL) {                        // освобождаем память
         p = head;
         head = head->next;
         free(p->line);
