@@ -2,19 +2,20 @@
 
 // Подключаем стандартные библиотеки
 #include <stdio.h>                      // printf, fprintf, perror
-#include <stdlib.h>                     // atol, realloc, free, setenv, exit
+#include <stdlib.h>                     // strtol, realloc, free, setenv, exit
 #include <unistd.h>                     // getopt, getuid, geteuid, getgid, getegid,
                                         // getpid, getppid, getpgrp, getcwd, setpgid
-#include <sys/resource.h>               // getrlimit, setrlimit, RLIMIT_FSIZE, RLIMIT_CORE
+#include <sys/resource.h>               // getrlimit, setrlimit, RLIMIT_FSIZE, RLIMIT_CORE, RLIM_INFINITY
 #include <string.h>                     // strchr
+#include <limits.h>                     // PATH_MAX
 
 extern char **environ;                  // глобальный массив строк "NAME=value"
 
 // Опция -i: печатает реальные и эффективные UID и GID
 static void show_ids(void)
 {
-    printf("Real UID = %d, Effective UID = %d\n", (int)getuid(), (int)geteuid());
-    printf("Real GID = %d, Effective GID = %d\n", (int)getgid(), (int)getegid());
+    printf("real uid = %d, effective uid = %d\n", (int)getuid(), (int)geteuid());
+    printf("real gid = %d, effective gid = %d\n", (int)getgid(), (int)getegid());
 }
 
 // Опция -s: сделать процесс лидером своей группы процессов
@@ -23,18 +24,19 @@ static void become_leader(void)
     if (setpgid(0, 0) < 0) {            // 0,0 значит создать новую группу и поместить меня в неё
         perror("setpgid");
     } else {
-        printf("Process is now a group leader, PGID = %d\n", (int)getpgrp());
+        printf("Process has become group leader, pgid = %d\n", (int)getpgrp());
     }
 }
 
 // Опция -p: печатает PID, PPID, PGID
 static void show_pids(void)
 {
-    printf("PID = %d, PPID = %d, PGID = %d\n",
-           (int)getpid(), (int)getppid(), (int)getpgrp());
+    printf("pid = %d\n", (int)getpid());
+    printf("ppid = %d\n", (int)getppid());
+    printf("pgid = %d\n", (int)getpgrp());
 }
 
-// Опция -u: показать максимально допустимый размер файла
+// Опция -u: показать максимально допустимый размер файла (RLIMIT_FSIZE)
 static void show_ulimit(void)
 {
     struct rlimit rl;
@@ -42,27 +44,47 @@ static void show_ulimit(void)
         perror("getrlimit");
         return;
     }
-    printf("Max file size (soft) = %llu bytes\n", (unsigned long long)rl.rlim_cur);
-    printf("Max file size (hard) = %llu bytes\n", (unsigned long long)rl.rlim_max);
+    printf("ulimit (RLIMIT_FSIZE): soft = ");
+    if (rl.rlim_cur == RLIM_INFINITY)
+        printf("unlimited");
+    else
+        printf("%ld", (long)rl.rlim_cur);
+
+    printf(", hard = ");
+    if (rl.rlim_max == RLIM_INFINITY)
+        printf("unlimited");
+    else
+        printf("%ld", (long)rl.rlim_max);
+    printf("\n");
 }
 
-// Опция -U: изменить максимально допустимый размер файла
-static void set_ulimit(const char *v)
+// Опция -U: изменить максимально допустимый размер файла (RLIMIT_FSIZE)
+static void set_ulimit(const char *arg)
 {
+    if (!arg) {
+        fprintf(stderr, "-U requires argument\n");
+        return;
+    }
+    char *end;
+    long v = strtol(arg, &end, 10);     // строка -> long, end указывает на остаток
+    if (*end != '\0' || v < 0) {        // мусор после числа или отрицательное
+        fprintf(stderr, "Invalid ulimit value: %s\n", arg);
+        return;
+    }
     struct rlimit rl;
     if (getrlimit(RLIMIT_FSIZE, &rl) < 0) {
         perror("getrlimit");
         return;
     }
-    rl.rlim_cur = (rlim_t)atol(v);      // atol: строка в длинное целое
+    rl.rlim_cur = (rlim_t)v;
     if (setrlimit(RLIMIT_FSIZE, &rl) < 0) {
         perror("setrlimit");
-    } else {
-        printf("Max file size (soft) = %s bytes\n", v);
+        return;
     }
+    printf("ulimit set to %ld\n", v);
 }
 
-// Опция -c: показать размер core-файла
+// Опция -c: показать размер core-файла (RLIMIT_CORE)
 static void show_core(void)
 {
     struct rlimit rl;
@@ -70,34 +92,54 @@ static void show_core(void)
         perror("getrlimit");
         return;
     }
-    printf("Core size (soft) = %llu bytes\n", (unsigned long long)rl.rlim_cur);
-    printf("Core size (hard) = %llu bytes\n", (unsigned long long)rl.rlim_max);
+    printf("core file size limit: soft=");
+    if (rl.rlim_cur == RLIM_INFINITY)
+        printf("unlimited");
+    else
+        printf("%ld", (long)rl.rlim_cur);
+
+    printf(", hard=");
+    if (rl.rlim_max == RLIM_INFINITY)
+        printf("unlimited");
+    else
+        printf("%ld", (long)rl.rlim_max);
+    printf("\n");
 }
 
-// Опция -C: изменить размер core-файла
-static void set_core(const char *v)
+// Опция -C: изменить размер core-файла (RLIMIT_CORE)
+static void set_core(const char *arg)
 {
+    if (!arg) {
+        fprintf(stderr, "-C requires argument\n");
+        return;
+    }
+    char *end;
+    long v = strtol(arg, &end, 10);
+    if (*end != '\0' || v < 0) {
+        fprintf(stderr, "invalid core size: %s\n", arg);
+        return;
+    }
     struct rlimit rl;
     if (getrlimit(RLIMIT_CORE, &rl) < 0) {
         perror("getrlimit");
         return;
     }
-    rl.rlim_cur = (rlim_t)atol(v);
+    rl.rlim_cur = (rlim_t)v;
     if (setrlimit(RLIMIT_CORE, &rl) < 0) {
         perror("setrlimit");
-    } else {
-        printf("Core size (soft) = %s bytes\n", v);
+        return;
     }
+    printf("core file size set to %ld\n", v);
 }
 
 // Опция -d: напечатать текущую рабочую директорию
 static void show_cwd(void)
 {
-    char buf[4096];                     // буфер под путь к папке
+    char buf[PATH_MAX];                 // буфер под путь к папке
     if (getcwd(buf, sizeof buf) == NULL) {
         perror("getcwd");
     } else {
-        printf("CWD = %s\n", buf);
+        printf("cwd = %s\n", buf);
     }
 }
 
@@ -109,23 +151,27 @@ static void show_env(void)
 }
 
 // Опция -V: добавить или изменить переменную среды вида "NAME=value"
-static void set_env(const char *nv)
+static void set_env(const char *arg)
 {
-    const char *eq = strchr(nv, '=');           // ищем знак '='
+    if (!arg) {
+        fprintf(stderr, "-V requires name=value\n");
+        return;
+    }
+    const char *eq = strchr(arg, '=');          // ищем знак '='
     if (eq == NULL) {
         fprintf(stderr, "Need name=value format\n");
         return;
     }
-    size_t len = (size_t)(eq - nv);             // длина имени до символа '='
+    size_t len = (size_t)(eq - arg);            // длина имени до символа '='
     char name[256];
     if (len >= sizeof name) len = sizeof name - 1;
-    for (size_t i = 0; i < len; ++i) name[i] = nv[i];
+    for (size_t i = 0; i < len; ++i) name[i] = arg[i];
     name[len] = '\0';
 
     if (setenv(name, eq + 1, 1) < 0) {          // eq+1 это значение, 1 значит перезаписать
         perror("setenv");
     } else {
-        printf("Environment: %s = %s\n", name, eq + 1);
+        printf("environment updated: %s\n", arg);
     }
 }
 
