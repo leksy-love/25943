@@ -1,34 +1,32 @@
 #define _POSIX_C_SOURCE 200809L
 
-// Подключаем стандартные библиотеки
-#include <stdio.h>                      // printf, fprintf, perror
-#include <stdlib.h>                     // strtol, realloc, free, setenv, exit
-#include <unistd.h>                     // getopt, getuid, geteuid, getgid, getegid,
-                                        // getpid, getppid, getpgrp, getcwd, setpgid
-#include <sys/resource.h>               // getrlimit, setrlimit, RLIMIT_FSIZE, RLIMIT_CORE, RLIM_INFINITY
-#include <string.h>                     // strchr
-#include <limits.h>                     // PATH_MAX
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/resource.h>
+#include <string.h>
+#include <limits.h>
 
-extern char **environ;                  // глобальный массив строк "NAME=value"
+extern char **environ;
 
-// Опция -i: печатает реальные и эффективные UID и GID
+// Опция -i: UID и GID
 static void show_ids(void)
 {
     printf("real uid = %d, effective uid = %d\n", (int)getuid(), (int)geteuid());
     printf("real gid = %d, effective gid = %d\n", (int)getgid(), (int)getegid());
 }
 
-// Опция -s: сделать процесс лидером своей группы процессов
+// Опция -s: лидер группы
 static void become_leader(void)
 {
-    if (setpgid(0, 0) < 0) {            // 0,0 значит создать новую группу и поместить меня в неё
+    if (setpgid(0, 0) < 0) {
         perror("setpgid");
     } else {
         printf("Process has become group leader, pgid = %d\n", (int)getpgrp());
     }
 }
 
-// Опция -p: печатает PID, PPID, PGID
+// Опция -p: PID, PPID, PGID
 static void show_pids(void)
 {
     printf("pid = %d\n", (int)getpid());
@@ -36,29 +34,18 @@ static void show_pids(void)
     printf("pgid = %d\n", (int)getpgrp());
 }
 
-// Опция -u: показать максимально допустимый размер файла (RLIMIT_FSIZE)
+// Опция -u: показать максимальное количество процессов (ulimit -u) через sysconf
 static void show_ulimit(void)
 {
-    struct rlimit rl;
-    if (getrlimit(RLIMIT_FSIZE, &rl) < 0) {
-        perror("getrlimit");
+    long max_proc = sysconf(_SC_CHILD_MAX);
+    if (max_proc == -1) {
+        perror("sysconf");
         return;
     }
-    printf("ulimit (RLIMIT_FSIZE): soft = ");
-    if (rl.rlim_cur == RLIM_INFINITY)
-        printf("unlimited");
-    else
-        printf("%ld", (long)rl.rlim_cur);
-
-    printf(", hard = ");
-    if (rl.rlim_max == RLIM_INFINITY)
-        printf("unlimited");
-    else
-        printf("%ld", (long)rl.rlim_max);
-    printf("\n");
+    printf("max user processes (-u): %ld\n", max_proc);
 }
 
-// Опция -U: изменить максимально допустимый размер файла (RLIMIT_FSIZE)
+// Опция -U: изменить ulimit (в Solaris меняем RLIMIT_FSIZE, так как NPROC нет)
 static void set_ulimit(const char *arg)
 {
     if (!arg) {
@@ -66,8 +53,8 @@ static void set_ulimit(const char *arg)
         return;
     }
     char *end;
-    long v = strtol(arg, &end, 10);     // строка -> long, end указывает на остаток
-    if (*end != '\0' || v < 0) {        // мусор после числа или отрицательное
+    long v = strtol(arg, &end, 10);
+    if (*end != '\0' || v < 0) {
         fprintf(stderr, "Invalid ulimit value: %s\n", arg);
         return;
     }
@@ -81,10 +68,10 @@ static void set_ulimit(const char *arg)
         perror("setrlimit");
         return;
     }
-    printf("ulimit set to %ld\n", v);
+    printf("ulimit (file size) set to %ld\n", v);
 }
 
-// Опция -c: показать размер core-файла (RLIMIT_CORE)
+// Опция -c: показать размер core-файла
 static void show_core(void)
 {
     struct rlimit rl;
@@ -93,20 +80,15 @@ static void show_core(void)
         return;
     }
     printf("core file size limit: soft=");
-    if (rl.rlim_cur == RLIM_INFINITY)
-        printf("unlimited");
-    else
-        printf("%ld", (long)rl.rlim_cur);
-
+    if (rl.rlim_cur == RLIM_INFINITY) printf("unlimited");
+    else printf("%ld", (long)rl.rlim_cur);
     printf(", hard=");
-    if (rl.rlim_max == RLIM_INFINITY)
-        printf("unlimited");
-    else
-        printf("%ld", (long)rl.rlim_max);
+    if (rl.rlim_max == RLIM_INFINITY) printf("unlimited");
+    else printf("%ld", (long)rl.rlim_max);
     printf("\n");
 }
 
-// Опция -C: изменить размер core-файла (RLIMIT_CORE)
+// Опция -C: изменить размер core-файла
 static void set_core(const char *arg)
 {
     if (!arg) {
@@ -132,10 +114,10 @@ static void set_core(const char *arg)
     printf("core file size set to %ld\n", v);
 }
 
-// Опция -d: напечатать текущую рабочую директорию
+// Опция -d: текущая директория
 static void show_cwd(void)
 {
-    char buf[PATH_MAX];                 // буфер под путь к папке
+    char buf[PATH_MAX];
     if (getcwd(buf, sizeof buf) == NULL) {
         perror("getcwd");
     } else {
@@ -143,51 +125,54 @@ static void show_cwd(void)
     }
 }
 
-// Опция -v: напечатать все переменные среды
+// Опция -v: переменные среды
 static void show_env(void)
 {
-    for (char **e = environ; *e != NULL; ++e)   // идём по массиву пока не встретим NULL
+    for (char **e = environ; *e != NULL; ++e)
         printf("%s\n", *e);
 }
 
-// Опция -V: добавить или изменить переменную среды вида "NAME=value"
+// Опция -V: изменить/добавить переменную среды
 static void set_env(const char *arg)
 {
     if (!arg) {
         fprintf(stderr, "-V requires name=value\n");
         return;
     }
-    const char *eq = strchr(arg, '=');          // ищем знак '='
+    const char *eq = strchr(arg, '=');
     if (eq == NULL) {
         fprintf(stderr, "Need name=value format\n");
         return;
     }
-    size_t len = (size_t)(eq - arg);            // длина имени до символа '='
+    size_t len = (size_t)(eq - arg);
     char name[256];
     if (len >= sizeof name) len = sizeof name - 1;
     for (size_t i = 0; i < len; ++i) name[i] = arg[i];
     name[len] = '\0';
 
-    if (setenv(name, eq + 1, 1) < 0) {          // eq+1 это значение, 1 значит перезаписать
+    if (setenv(name, eq + 1, 1) < 0) {
         perror("setenv");
     } else {
         printf("environment updated: %s\n", arg);
     }
 }
 
-// Строка для getopt: простые опции i s p u c d v, опции с аргументом U: C: V:
 static const char *OPTSTRING = "ispuU:cC:dvV:";
 
 int main(int argc, char **argv)
 {
-    int opt;                            // очередная опция от getopt
-    int *opts = NULL;                   // массив кодов опций
-    char **args = NULL;                 // массив аргументов опций
-    size_t count = 0, cap = 0;          // сколько уже есть и сколько места
+    int opt;
+    int *opts = NULL;
+    char **args = NULL;
+    size_t count = 0, cap = 0;
 
-    opterr = 0;                         // отключаем автоматические сообщения getopt
+    if (argc == 1) {
+        printf("you need to write arguments\n");
+        return EXIT_SUCCESS;
+    }
 
-    // Первая фаза: собрать все опции в массив слева направо
+    opterr = 0;
+
     while ((opt = getopt(argc, argv, OPTSTRING)) != -1) {
         if (count == cap) {
             size_t nc = (cap == 0) ? 8 : cap * 2;
@@ -205,14 +190,13 @@ int main(int argc, char **argv)
         ++count;
     }
 
-    // Вторая фаза: обработать справа налево
     for (size_t i = count; i-- > 0; ) {
         switch (opts[i]) {
             case 'i': show_ids();        break;
             case 's': become_leader();   break;
             case 'p': show_pids();       break;
-            case 'u': show_ulimit();     break;
-            case 'U': set_ulimit(args[i]); break;
+            case 'u': show_ulimit();     break; 
+            case 'U': set_ulimit(args[i]); break; 
             case 'c': show_core();       break;
             case 'C': set_core(args[i]);  break;
             case 'd': show_cwd();        break;
